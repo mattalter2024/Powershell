@@ -192,12 +192,10 @@ try {
 
 # 16️⃣ Domain Admins and Local Administrators Membership
 try {
-    # Domain Admins (from AD)
     $domainAdmins = Get-ADGroupMember "Domain Admins" -Recursive
     $domainAdminCount = $domainAdmins.Count
     $domainAdminList = $domainAdmins | Select-Object -ExpandProperty SamAccountName | Out-String
 
-    # Local Administrators group on this server
     $localAdmins = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue
     if ($null -eq $localAdmins) {
         $localAdminList = "[Unable to retrieve local Administrators group on this system.]"
@@ -206,7 +204,6 @@ try {
     }
 
     $adminInfo = "Domain Admins in AD:`nTotal: $domainAdminCount`n`nMembers:`n$domainAdminList`n`nLocal Administrators Group on Server:`n$localAdminList"
-
     Add-Section -Section "Domain Admins and Local Administrators Membership" -Content $adminInfo
 } catch {
     Add-Section -Section "Domain Admins and Local Administrators Membership" -Content "Error: $_"
@@ -214,7 +211,6 @@ try {
 
 # 17️⃣ DNS Server Configuration
 try {
-    # Forwarders
     $forwarders = Get-DnsServerForwarder -ErrorAction SilentlyContinue
     if ($null -eq $forwarders) {
         $forwarderList = "No forwarders configured or not a DNS server."
@@ -222,7 +218,6 @@ try {
         $forwarderList = ($forwarders.IPAddress -join ", ")
     }
 
-    # Zones Details
     $zones = Get-DnsServerZone -ErrorAction SilentlyContinue
     if ($null -eq $zones) {
         $zoneList = "No zones found or not a DNS server."
@@ -232,17 +227,81 @@ try {
             $zoneType = $_.ZoneType
             $replicationScope = $_.ReplicationScope
             $agingEnabled = if ($_.AgingEnabled) { "Enabled" } else { "Disabled" }
-
             "$zoneName (Type: $zoneType, Replication: $replicationScope, Aging: $agingEnabled)"
         } | Out-String
         $zoneList = $zoneDetails
     }
 
     $dnsInfo = "Forwarders:`n$forwarderList`n`nZones:`n$zoneList"
-
     Add-Section -Section "DNS Server Configuration" -Content $dnsInfo
 } catch {
     Add-Section -Section "DNS Server Configuration" -Content "Error: $_"
+}
+
+# 18️⃣ SYSVOL Folder Size and File Count
+try {
+    $sysvolPath = "C:\Windows\SYSVOL\domain"
+    if (Test-Path $sysvolPath) {
+        $files = Get-ChildItem -Path $sysvolPath -Recurse -File -ErrorAction SilentlyContinue
+        $fileCount = $files.Count
+        $totalBytes = ($files | Measure-Object -Property Length -Sum).Sum
+        $totalSizeGB = [math]::Round($totalBytes / 1GB, 2)
+        $sysvolInfo = "Path: $sysvolPath`nTotal Size: $totalSizeGB GB`nTotal Files: $fileCount"
+    } else {
+        $sysvolInfo = "SYSVOL folder not found at $sysvolPath."
+    }
+    Add-Section -Section "SYSVOL Folder Size and File Count" -Content $sysvolInfo
+} catch {
+    Add-Section -Section "SYSVOL Folder Size and File Count" -Content "Error: $_"
+}
+
+# 19️⃣ SYSVOL Replication Method
+try {
+    $dfsrmigState = dfsrmig /getglobalstate 2>&1 | Out-String
+    Add-Section -Section "SYSVOL Replication Method" -Content $dfsrmigState
+} catch {
+    Add-Section -Section "SYSVOL Replication Method" -Content "Error: $_"
+}
+
+# 20️⃣ SYSVOL DFSR Replication Partners
+try {
+    $groups = Get-DfsReplicationGroup -ErrorAction SilentlyContinue
+    if ($null -eq $groups) {
+        $partnersInfo = "No DFS Replication Groups found on this server."
+    } else {
+        $partnersDetails = ""
+        foreach ($group in $groups) {
+            $partnersDetails += "`nReplication Group: $($group.GroupName)"
+            $connections = Get-DfsrConnection -GroupName $group.GroupName -ErrorAction SilentlyContinue
+            if ($connections) {
+                foreach ($conn in $connections) {
+                    $partnersDetails += "`n- $($conn.SourceComputerName) --> $($conn.DestinationComputerName)"
+                }
+            } else {
+                $partnersDetails += "`n- No connections found in this group."
+            }
+            $partnersDetails += "`n"
+        }
+        $partnersInfo = $partnersDetails
+    }
+
+    Add-Section -Section "SYSVOL DFSR Replication Partners" -Content $partnersInfo
+} catch {
+    Add-Section -Section "SYSVOL DFSR Replication Partners" -Content "Error: $_"
+}
+
+# 21️⃣ DFS Namespaces
+try {
+    $dfsRoots = Get-DfsnRoot -ErrorAction SilentlyContinue
+    if ($null -eq $dfsRoots) {
+        $dfsNamespaceList = "No DFS Namespaces found on this server."
+    } else {
+        $dfsNamespaceList = ($dfsRoots.Path -join "`n")
+    }
+
+    Add-Section -Section "DFS Namespaces on this Server" -Content $dfsNamespaceList
+} catch {
+    Add-Section -Section "DFS Namespaces on this Server" -Content "Error: $_"
 }
 
 # ✅ Generate the final HTML
